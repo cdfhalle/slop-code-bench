@@ -24,8 +24,10 @@ from slop_code.common.llms import ModelDefinition
 from slop_code.common.llms import ThinkingPreset
 from slop_code.common.llms import TokenUsage
 from slop_code.execution import DockerEnvironmentSpec
+from slop_code.execution import EnrootEnvironmentSpec
 from slop_code.execution import LocalEnvironmentSpec
 from slop_code.execution import Session
+from slop_code.execution.enroot_runtime import MiniSWEEnrootEnvironment
 from slop_code.execution.models import EnvironmentSpec
 
 # This needs to be done before the imports to avoid logging startup messages
@@ -261,7 +263,9 @@ class MiniSWEAgent(Agent):
         self._steps: list[MiniSWETrajectoryRecord] = []
         self._messages = []
         self.extra_template_vars = {}
-        self._env: DockerEnvironment | LocalEnvironment | None = None
+        self._env: (
+            DockerEnvironment | LocalEnvironment | MiniSWEEnrootEnvironment | None
+        ) = None
 
     @classmethod
     def _from_config(
@@ -514,7 +518,9 @@ class MiniSWEAgent(Agent):
             raise miniswe_default.Submitted("".join(lines[1:]))
 
     @property
-    def env(self) -> DockerEnvironment | LocalEnvironment:
+    def env(
+        self,
+    ) -> DockerEnvironment | LocalEnvironment | MiniSWEEnrootEnvironment:
         if self._env is None:
             raise ValueError("Environment not set")
         return self._env
@@ -528,12 +534,15 @@ class MiniSWEAgent(Agent):
     def build_environment(
         workspace: Path,
         env_spec: EnvironmentSpec,
-    ) -> DockerEnvironment | LocalEnvironment:
+    ) -> DockerEnvironment | LocalEnvironment | MiniSWEEnrootEnvironment:
         if isinstance(env_spec, LocalEnvironmentSpec):
             env_vars = {
                 str(k): str(v) for k, v in env_spec.environment.env.items()
             }
             return LocalEnvironment(cwd=str(workspace), env=env_vars)
+
+        if isinstance(env_spec, EnrootEnvironmentSpec):
+            return MiniSWEEnrootEnvironment(workspace, env_spec)
 
         if isinstance(env_spec, DockerEnvironmentSpec):
             run_args = ["--rm"]
@@ -750,7 +759,7 @@ class MiniSWEAgent(Agent):
     def cleanup(self) -> None:
         """Clean up the environment resources."""
         self.log.debug("Cleaning up MiniSWE agent resources")
-        if isinstance(self.env, DockerEnvironment):
+        if isinstance(self.env, DockerEnvironment | MiniSWEEnrootEnvironment):
             self.env.cleanup()
         self.log.debug("Cleanup completed")
 
