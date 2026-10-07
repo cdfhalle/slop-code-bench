@@ -611,6 +611,7 @@ def resolve_environment(
     """
     from slop_code.execution import LocalEnvironmentSpec
     from slop_code.execution.docker_runtime import DockerEnvironmentSpec
+    from slop_code.execution.enroot_runtime import EnrootEnvironmentSpec
 
     try:
         if isinstance(source, Path):
@@ -622,6 +623,8 @@ def resolve_environment(
             model_cls = DockerEnvironmentSpec
         elif env_type == "local":
             model_cls = LocalEnvironmentSpec
+        elif env_type == "enroot":
+            model_cls = EnrootEnvironmentSpec
         else:
             raise ValueError(f"Invalid environment type: {env_type}")
 
