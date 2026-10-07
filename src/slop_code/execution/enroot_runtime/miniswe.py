@@ -24,6 +24,13 @@ class MiniSWEEnrootEnvironment:
         self.workspace = workspace
         self.spec = spec
 
+    def get_template_vars(self) -> dict[str, str]:
+        """Fields the MiniSWE prompt renderer merges in from the environment."""
+        return {
+            "cwd": self.spec.enroot.workdir,
+            "image": self.spec.enroot.image,
+        }
+
     def execute(self, command: str, timeout: float | None = None) -> dict:
         runtime = EnrootExecRuntime.spawn(
             self.spec,

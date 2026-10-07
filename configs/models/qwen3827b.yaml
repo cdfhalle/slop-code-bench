@@ -1,0 +1,20 @@
+# Self-hosted Qwen3.8-27B on the SGLang endpoint from model-hosting.
+# Pass the live base URL with submit_batch --api-base. Thinking is off so
+# the reply is in message content, which MiniSWE reads.
+internal_name: qwen3827b
+provider: openai
+aliases:
+  - qwen3.8-27b
+pricing:
+  input: 0
+  output: 0
+  cache_read: 0
+  cache_write: 0
+agent_specific:
+  mini_swe:
+    model_name: openai/qwen3.8-27b
+    model_class: litellm
+    model_kwargs:
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false

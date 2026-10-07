@@ -332,7 +332,7 @@ def main(
         "RUN": run_name,
         "AGENT": agent,
         "MODEL": model,
-        "ENVIRONMENT": environment,
+        "SCB_ENVIRONMENT": environment,
     }
     if api_base:
         exports["API_BASE"] = api_base
@@ -346,7 +346,7 @@ def main(
     )
     eval_exports = {
         "RUN": run_name,
-        "ENVIRONMENT": environment,
+        "SCB_ENVIRONMENT": environment,
     }
     eval_cmd = _sbatch_cmd(
         SLURM / "eval_array.sbatch",

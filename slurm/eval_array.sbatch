@@ -37,7 +37,8 @@ if [ ! -f "$ENROOT_SYSCONF_PATH/mounts.d/20-config.fstab" ]; then
 fi
 
 RUN=${RUN:?set RUN}
-ENVIRONMENT=${ENVIRONMENT:-configs/environments/enroot-python3.12-uv.yaml}
+# Not ENVIRONMENT: the site sets that to BATCH on every batch job.
+SCB_ENVIRONMENT=${SCB_ENVIRONMENT:-configs/environments/enroot-python3.12-uv.yaml}
 : "${SLURM_ARRAY_TASK_ID:?submit as an array (sbatch --array=...)}"
 
 PROBLEMS_FILE="$SCB_RUNS_DIR/$RUN/problems.txt"
@@ -68,7 +69,7 @@ if [ -f "$RUN_YAML" ]; then
 fi
 
 echo "===== eval task $SLURM_ARRAY_TASK_ID  node=$(hostname) ====="
-echo "run=$RUN problem=$PROBLEM env=$ENVIRONMENT pass_policy=$policy"
+echo "run=$RUN problem=$PROBLEM env=$SCB_ENVIRONMENT pass_policy=$policy"
 echo "image_store=$SCB_IMAGE_STORE"
 
 # --overwrite: the run array already graded each checkpoint. Without this,
@@ -76,7 +77,7 @@ echo "image_store=$SCB_IMAGE_STORE"
 "$SCB_PYTHON" -m slop_code.entrypoints.cli eval \
     "$RUN_DIR" \
     --problem "$PROBLEM" \
-    --env-config "$ENVIRONMENT" \
+    --env-config "$SCB_ENVIRONMENT" \
     --pass-policy "$policy" \
     --overwrite \
     --no-live-progress \

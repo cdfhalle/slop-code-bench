@@ -74,7 +74,8 @@ load_cred_file "${XDG_CONFIG_HOME:-$HOME/.config}/slop-code/.env"
 
 RUN=${RUN:?set RUN}
 AGENT=${AGENT:-configs/agents/miniswe.yaml}
-ENVIRONMENT=${ENVIRONMENT:-configs/environments/enroot-python3.12-uv.yaml}
+# Not ENVIRONMENT: the site sets that to BATCH on every batch job.
+SCB_ENVIRONMENT=${SCB_ENVIRONMENT:-configs/environments/enroot-python3.12-uv.yaml}
 MODEL=${MODEL:?set MODEL as provider/name}
 : "${SLURM_ARRAY_TASK_ID:?submit as an array (sbatch --array=...)}"
 
@@ -113,7 +114,7 @@ fi
 
 echo "===== run task $SLURM_ARRAY_TASK_ID  node=$(hostname) ====="
 echo "run=$RUN problem=$PROBLEM agent=$AGENT model=$MODEL"
-echo "environment=$ENVIRONMENT config=$RUN_YAML"
+echo "environment=$SCB_ENVIRONMENT config=$RUN_YAML"
 echo "image_store=$SCB_IMAGE_STORE tmpdir=$TMPDIR"
 
 # Fallback only. The run.yaml save_dir is the run directory, so slop-code
@@ -155,6 +156,6 @@ trap copy_fallback_outputs EXIT
     --config "$RUN_YAML" \
     --agent "$AGENT" \
     --model "$MODEL" \
-    --environment "$ENVIRONMENT" \
+    --environment "$SCB_ENVIRONMENT" \
     --problem "$PROBLEM" \
     --no-live-progress
