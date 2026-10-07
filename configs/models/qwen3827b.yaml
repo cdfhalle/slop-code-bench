@@ -1,6 +1,10 @@
 # Self-hosted Qwen3.8-27B on the SGLang endpoint from model-hosting.
-# Pass the live base URL with submit_batch --api-base. Thinking is off so
-# the reply is in message content, which MiniSWE reads.
+# Pass the live base URL with submit_batch --api-base.
+# Thinking stays on. SGLang puts the trace in reasoning_content and the
+# answer in content, once the completion is allowed to finish. A tiny
+# max_tokens budget is what leaves content empty: the trace consumes it
+# and finish_reason is "length". This agent reads the bash fence from
+# content, the same split SWE-bench Pro gets by reading tool_calls.
 internal_name: qwen3827b
 provider: openai
 aliases:
@@ -14,7 +18,3 @@ agent_specific:
   mini_swe:
     model_name: openai/qwen3.8-27b
     model_class: litellm
-    model_kwargs:
-      extra_body:
-        chat_template_kwargs:
-          enable_thinking: false
