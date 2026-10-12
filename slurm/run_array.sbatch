@@ -16,7 +16,7 @@
 #SBATCH --constraint=ARCH:X86&SCRATCH:NVME
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --time=08:00:00
+#SBATCH --time=16:00:00
 # stderr joins this file; Slurm opens it before the script runs (logs/ must exist).
 #SBATCH --output=logs/%x-%A_%a.out
 
@@ -152,10 +152,22 @@ trap copy_fallback_outputs EXIT
 # the next one, and early-stop reads that grade. eval_array re-grades the
 # saved directory with --overwrite, so it does not exit 1 on those results.
 # --no-live-progress: there is no TTY; the progress display corrupts the log.
-"$SCB_PYTHON" -m slop_code.entrypoints.cli run \
-    --config "$RUN_YAML" \
-    --agent "$AGENT" \
-    --model "$MODEL" \
-    --environment "$SCB_ENVIRONMENT" \
-    --problem "$PROBLEM" \
-    --no-live-progress
+#
+# SCB_RESUME=1 continues a problem inside the existing run directory.
+# --resume rejects --config/--agent/--model/--environment and would otherwise
+# run every incomplete problem. SCB_ONLY_PROBLEM keeps this task to one.
+if [ "${SCB_RESUME:-}" = 1 ]; then
+    echo "resume=1 only=$PROBLEM"
+    SCB_ONLY_PROBLEM="$PROBLEM" "$SCB_PYTHON" -m slop_code.entrypoints.cli run \
+        --resume "$SCB_RUNS_DIR/$RUN" \
+        --problem "$PROBLEM" \
+        --no-live-progress
+else
+    "$SCB_PYTHON" -m slop_code.entrypoints.cli run \
+        --config "$RUN_YAML" \
+        --agent "$AGENT" \
+        --model "$MODEL" \
+        --environment "$SCB_ENVIRONMENT" \
+        --problem "$PROBLEM" \
+        --no-live-progress
+fi

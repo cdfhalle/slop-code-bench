@@ -68,7 +68,9 @@ SCB_SLIRP="${SCB_SLIRP:-$SCB_REPO/slurm/bin/slirp4netns}"
 # them: the image build has its own mem/time, filled in after the first real bake.
 SCB_MEM="${SCB_MEM:-16G}"
 SCB_CPUS="${SCB_CPUS:-4}"
-SCB_TIME="${SCB_TIME:-08:00:00}"
+# Doubled from 08:00:00 after the first full run: 14 problems hit that wall
+# while still working or stuck in one command. Partition max is 7 days.
+SCB_TIME="${SCB_TIME:-16:00:00}"
 
 export SCB_REPO SCB_ACCOUNT SCB_PARTITION SCB_CONSTRAINT \
     SCB_IMAGE_STORE SCB_IMAGES_DIR SCB_RUNS_DIR SCB_PYTHON \

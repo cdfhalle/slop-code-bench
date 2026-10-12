@@ -112,6 +112,38 @@ def _split_model(spec: str) -> tuple[str, str]:
     return provider, name
 
 
+def _shard_plan(
+    n_items: int, bases: list[str], throttle: int
+) -> list[tuple[str, str]]:
+    """Split an array across servers.
+
+    ``throttle`` is the total number of rollouts in flight. Each server gets
+    an equal share, so 16 rollouts and 2 servers is 8 apiece, matching one
+    SGLang ``--max-running-requests 8`` per GPU. Returns
+    ``(api_base, array_spec)`` with array indexes into the shared problem
+    list. An empty ``bases`` list is one shard and no ``API_BASE``.
+    """
+    servers = bases or [""]
+    if throttle < 1 or throttle % len(servers) != 0:
+        raise typer.BadParameter(
+            f"--throttle {throttle} must be a positive multiple of "
+            f"{len(servers)} server(s)"
+        )
+    per = throttle // len(servers)
+    counts = [n_items // len(servers)] * len(servers)
+    for index in range(n_items % len(servers)):
+        counts[index] += 1
+    plan: list[tuple[str, str]] = []
+    start = 0
+    for base, count in zip(servers, counts, strict=True):
+        if count == 0:
+            continue
+        end = start + count - 1
+        plan.append((base, f"{start}-{end}%{per}"))
+        start = end + 1
+    return plan
+
+
 def _clean_problems(names: list[str]) -> list[str]:
     cleaned: list[str] = []
     seen: set[str] = set()
@@ -199,11 +231,18 @@ def _sbatch_cmd(
     job_name: str,
     exports: dict[str, str],
     dependency: str = "",
+    use_site: bool = True,
 ) -> list[str]:
     cmd = ["sbatch", "--parsable"]
-    cmd.extend(f"{flag}={env[var]}" for var, flag in _SITE_FLAGS)
+    if use_site:
+        cmd.extend(f"{flag}={env[var]}" for var, flag in _SITE_FLAGS)
+    else:
+        cmd.append(f"--account={env['SCB_ACCOUNT']}")
+        cmd.append(f"--partition={env['SCB_PARTITION']}")
+        cmd.extend(["--cpus-per-task=1", "--mem=1G", "--time=00:10:00"])
     cmd.append(f"--job-name={job_name}")
-    cmd.append(f"--array={array}")
+    if array:
+        cmd.append(f"--array={array}")
     if dependency:
         cmd.append(f"--dependency={dependency}")
     export_items = ",".join(
@@ -272,12 +311,27 @@ def main(
     throttle: int = typer.Option(
         10,
         "--throttle",
-        help="Max concurrent array tasks.",
+        help=(
+            "Total concurrent rollouts. With more than one --api-base, "
+            "split evenly across the servers."
+        ),
     ),
-    api_base: str = typer.Option(
-        "",
+    api_base: list[str] = typer.Option(
+        [],
         "--api-base",
-        help="OpenAI-compatible base URL. Sets OPENAI_API_BASE in the run job.",
+        help=(
+            "OpenAI-compatible base URL. Repeat once per server. "
+            "Each server receives an equal share of --throttle."
+        ),
+    ),
+    serve_job: list[str] = typer.Option(
+        [],
+        "--serve-job",
+        help=(
+            "Slurm id of a model server. Repeat per server. After every "
+            "rollout array has finished, a short job cancels these ids. "
+            "The re-grade does not use them."
+        ),
     ),
     *,
     eval_only: bool = typer.Option(
@@ -327,72 +381,162 @@ def main(
     _warn_if_missing(REPO, "agents", agent)
     _warn_if_missing(REPO, "environments", environment)
 
-    array = f"0-{len(selected) - 1}%{throttle}"
-    exports = {
-        "RUN": run_name,
-        "AGENT": agent,
-        "MODEL": model,
-        "SCB_ENVIRONMENT": environment,
-    }
-    if api_base:
-        exports["API_BASE"] = api_base
+    bases = [item.strip() for item in api_base if item.strip()]
+    for job_id in serve_job:
+        if not job_id.isdigit():
+            raise typer.BadParameter(f"serve job id must be numeric, got {job_id!r}")
+    shards = _shard_plan(len(selected), bases, throttle)
     setup = ["bash", str(SLURM / "setup_enroot_sysconf.sh")]
-    run_cmd = _sbatch_cmd(
-        SLURM / "run_array.sbatch",
-        env,
-        array=array,
-        job_name=f"scb-{run_name}",
-        exports=exports,
-    )
     eval_exports = {
         "RUN": run_name,
         "SCB_ENVIRONMENT": environment,
     }
-    eval_cmd = _sbatch_cmd(
-        SLURM / "eval_array.sbatch",
-        env,
-        array=array,
-        job_name=f"scb-{run_name}-eval",
-        exports=eval_exports,
-        dependency="afterok:DRY",
-    )
     rel = run_dir
     try:
         rel = run_dir.relative_to(REPO)
     except ValueError:
         rel = run_dir
-    typer.echo(f"run: {rel}   problems: {len(selected)}   (array {array})")
+    shard_desc = ", ".join(spec for _base, spec in shards)
+    typer.echo(
+        f"run: {rel}   problems: {len(selected)}   "
+        f"servers: {len(shards)}   (arrays {shard_desc})"
+    )
+
+    def _run_exports(base: str) -> dict[str, str]:
+        exports = {
+            "RUN": run_name,
+            "AGENT": agent,
+            "MODEL": model,
+            "SCB_ENVIRONMENT": environment,
+        }
+        if base:
+            exports["API_BASE"] = base
+        return exports
+
+    def _names(kind: str, index: int) -> str:
+        if len(shards) == 1:
+            return f"scb-{run_name}" if kind == "run" else f"scb-{run_name}-eval"
+        return f"scb-{run_name}-s{index}" if kind == "run" else f"scb-{run_name}-s{index}-eval"
+
+    commands: list[tuple[str, list[str]]] = []
+    if not eval_only:
+        commands.append(("setup", setup))
+        for index, (base, array) in enumerate(shards):
+            commands.append(
+                (
+                    "run",
+                    _sbatch_cmd(
+                        SLURM / "run_array.sbatch",
+                        env,
+                        array=array,
+                        job_name=_names("run", index),
+                        exports=_run_exports(base),
+                    ),
+                )
+            )
+            commands.append(
+                (
+                    "eval",
+                    _sbatch_cmd(
+                        SLURM / "eval_array.sbatch",
+                        env,
+                        array=array,
+                        job_name=_names("eval", index),
+                        exports=eval_exports,
+                        dependency="afterok:DRY",
+                    ),
+                )
+            )
+        if serve_job:
+            commands.append(
+                (
+                    "stop",
+                    _sbatch_cmd(
+                        SLURM / "stop_servers.sbatch",
+                        env,
+                        array="",
+                        job_name=f"scb-{run_name}-stop",
+                        exports={"SERVE_JOBS": ":".join(serve_job)},
+                        dependency="afterany:DRY",
+                        use_site=False,
+                    ),
+                )
+            )
+    else:
+        whole = f"0-{len(selected) - 1}%{throttle}"
+        commands.append(
+            (
+                "eval",
+                _sbatch_cmd(
+                    SLURM / "eval_array.sbatch",
+                    env,
+                    array=whole,
+                    job_name=f"scb-{run_name}-eval",
+                    exports=eval_exports,
+                ),
+            )
+        )
 
     if dry_run:
         typer.echo("dry-run: not submitting")
-        if not eval_only:
-            typer.echo(shlex.join(setup))
-            typer.echo(shlex.join(run_cmd))
+        for kind, cmd in commands:
             shown = [
-                part.replace("afterok:DRY", "afterok:<run-array-jobid>")
-                for part in eval_cmd
+                part.replace("afterok:DRY", "afterok:<run-array-jobid>").replace(
+                    "afterany:DRY", "afterany:<run-array-jobids>"
+                )
+                for part in cmd
             ]
-        else:
-            shown = [
-                part
-                for part in eval_cmd
-                if part != "--dependency=afterok:DRY"
-            ]
-        typer.echo(shlex.join(shown))
+            typer.echo(f"{kind}: {shlex.join(shown)}")
         return
 
+    run_jobs: list[str] = []
     if not eval_only:
         subprocess.run(setup, cwd=REPO, check=True)  # noqa: S603
-        run_job = _submit(run_cmd, env)
-        eval_cmd = [
-            part.replace("afterok:DRY", f"afterok:{run_job}") for part in eval_cmd
-        ]
-        eval_job = _submit(eval_cmd, env)
-        typer.echo(f"run_array: {run_job}")
-        typer.echo(f"eval_array: {eval_job}  (afterok:{run_job})")
+        for index, (base, array) in enumerate(shards):
+            run_job = _submit(
+                _sbatch_cmd(
+                    SLURM / "run_array.sbatch",
+                    env,
+                    array=array,
+                    job_name=_names("run", index),
+                    exports=_run_exports(base),
+                ),
+                env,
+            )
+            run_jobs.append(run_job)
+            eval_job = _submit(
+                _sbatch_cmd(
+                    SLURM / "eval_array.sbatch",
+                    env,
+                    array=array,
+                    job_name=_names("eval", index),
+                    exports=eval_exports,
+                    dependency=f"afterok:{run_job}",
+                ),
+                env,
+            )
+            label = base or "default"
+            typer.echo(f"run_array[{index}] {label}: {run_job}  ({array})")
+            typer.echo(f"eval_array[{index}]: {eval_job}  (afterok:{run_job})")
+        if serve_job:
+            stop_job = _submit(
+                _sbatch_cmd(
+                    SLURM / "stop_servers.sbatch",
+                    env,
+                    array="",
+                    job_name=f"scb-{run_name}-stop",
+                    exports={"SERVE_JOBS": ":".join(serve_job)},
+                    dependency="afterany:" + ":".join(run_jobs),
+                    use_site=False,
+                ),
+                env,
+            )
+            typer.echo(
+                f"stop_servers: {stop_job}  (afterany:{':'.join(run_jobs)}) "
+                f"cancels {' '.join(serve_job)}"
+            )
     else:
-        eval_cmd = [part for part in eval_cmd if not part.startswith("--dependency=")]
-        eval_job = _submit(eval_cmd, env)
+        eval_job = _submit(commands[0][1], env)
         typer.echo(f"eval_array: {eval_job}")
     typer.echo(f"logs: logs/scb-{run_name}*.out   results: {rel}/<problem>/")
 

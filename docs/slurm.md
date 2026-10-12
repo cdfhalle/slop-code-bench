@@ -70,9 +70,12 @@ The submitter writes `runs/<run>/run.yaml` (`save_dir` is the run directory,
 mirror once, then submits `run_array` and `eval_array` with `afterok`.
 
 `--dry-run` prints the `sbatch` lines and does not submit. `--eval-only`
-submits only the eval array. `--api-base URL` sets `OPENAI_API_BASE` in the
-run job for a self-hosted server. `--throttle` (default 10) caps concurrent
-tasks.
+submits only the eval array. Repeat `--api-base URL` once per self-hosted
+server. `--throttle` is the total number of rollouts in flight and is split
+evenly across those servers, so `--throttle 16` and two bases run 8 tasks
+against each server. `--serve-job ID`, repeated per server, submits a
+one-task job that cancels those ids after every rollout array has finished.
+The re-grade does not call the model, so it does not hold the GPUs.
 
 `slop-code run` is invoked with `--config`, `--agent`, `--model`,
 `--environment`, `--problem`, and `--no-live-progress`. It grades each
