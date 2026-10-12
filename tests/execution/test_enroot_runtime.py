@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -136,3 +138,29 @@ def test_miniswe_execute_is_one_shot_without_home(
     assert "--net" in starts[0]
     assert "--pid" in starts[0]
     assert any(argv and argv[0] == "remove" for _home, argv in calls)
+
+
+def test_miniswe_execute_kills_a_command_at_the_default_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    work = tmp_path / "work"
+    work.mkdir()
+    home = tmp_path / "unmounted-home"
+    home.mkdir()
+    monkeypatch.setenv("ENROOT_DATA_PATH", str(data))
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    env = MiniSWEEnrootEnvironment(work, _spec(tmp_path, _wrapper(tmp_path)))
+    assert env.timeout == 30
+    started = time.monotonic()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired) as caught:
+            env.execute("echo before-timeout; sleep 30", timeout=1)
+    finally:
+        env.cleanup()
+    elapsed = time.monotonic() - started
+    assert elapsed < 10
+    assert caught.value.timeout == 1
+    assert isinstance(caught.value.output, bytes)
+    assert b"before-timeout" in caught.value.output
