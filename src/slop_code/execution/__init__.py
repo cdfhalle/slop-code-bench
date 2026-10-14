@@ -12,6 +12,10 @@ from slop_code.execution.docker_runtime import DockerEnvironmentSpec
 from slop_code.execution.docker_runtime import network_mode_for_address
 from slop_code.execution.docker_runtime.exec import DockerExecRuntime
 from slop_code.execution.docker_runtime.streaming import DockerStreamingRuntime
+from slop_code.execution.enroot_runtime import EnrootConfig
+from slop_code.execution.enroot_runtime import EnrootEnvironmentSpec
+from slop_code.execution.enroot_runtime import EnrootExecRuntime
+from slop_code.execution.enroot_runtime import EnrootStreamingRuntime
 from slop_code.execution.file_ops import Compression
 from slop_code.execution.file_ops import FileSignature
 from slop_code.execution.file_ops import FileType
@@ -41,7 +45,7 @@ from slop_code.execution.snapshot import SnapshotDiff
 from slop_code.execution.workspace import Workspace
 
 EnvironmentSpecType = Annotated[
-    LocalEnvironmentSpec | DockerEnvironmentSpec,
+    LocalEnvironmentSpec | DockerEnvironmentSpec | EnrootEnvironmentSpec,
     Field(discriminator="type"),
 ]
 __all__ = [
@@ -54,6 +58,10 @@ __all__ = [
     # Runtime implementations
     "DockerStreamingRuntime",
     "DockerExecRuntime",
+    "EnrootStreamingRuntime",
+    "EnrootExecRuntime",
+    "EnrootEnvironmentSpec",
+    "EnrootConfig",
     "LocalStreamingRuntime",
     "LocalExecRuntime",
     # Runtime utilities

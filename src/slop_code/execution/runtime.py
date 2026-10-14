@@ -162,6 +162,15 @@ def _ensure_runtimes_registered() -> None:
     STREAMING_RUNTIME_REGISTRY["local"] = LocalStreamingRuntime
     EXEC_RUNTIME_REGISTRY["local"] = LocalExecRuntime
 
+    # Enroot runtimes (Slurm clusters without a Docker daemon).
+    from slop_code.execution.enroot_runtime.exec import EnrootExecRuntime
+    from slop_code.execution.enroot_runtime.streaming import (
+        EnrootStreamingRuntime,
+    )
+
+    STREAMING_RUNTIME_REGISTRY["enroot"] = EnrootStreamingRuntime
+    EXEC_RUNTIME_REGISTRY["enroot"] = EnrootExecRuntime
+
     _runtimes_registered = True
 
 

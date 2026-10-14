@@ -1,0 +1,25 @@
+type: enroot
+name: python3.12
+enroot:
+  # Expanded when the process has SCB_IMAGE_STORE set. Bake writes this file.
+  image: ${SCB_IMAGE_STORE}/slop-code-python3.12.sqsh
+  slirp_binary: ${SCB_SLIRP}
+  workdir: /workspace
+  mount_workspace: true
+environment:
+  env:
+    # Inside the container rootfs. enroot hides /tmp with a fresh tmpfs.
+    UV_CACHE_DIR: /opt/cache/uv
+    PIP_CACHE_DIR: /opt/cache/pip
+    PIP_CONFIG_FILE: /opt/cache/pip.conf
+setup:
+  eval_commands:
+    - uv init
+    - uv add -r requirements.txt
+  resume_commands:
+    - python -m venv .venv || true
+    - .venv/bin/pip install -r requirements.txt 2>/dev/null || true
+commands:
+  entry_file: "{entry_file}.py"
+  command: uv run
+  agent_command: "python"

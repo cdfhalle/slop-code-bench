@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -1371,6 +1372,25 @@ def run_agent(
 
         problem_names_resolved = to_run
 
+        # One array task, one problem. --resume merges --problem into the
+        # saved list, and this run's config.yaml was already reduced to a
+        # single name by concurrent writers. Without the filter every task
+        # would run every incomplete problem.
+        only_problem = os.environ.get("SCB_ONLY_PROBLEM", "").strip()
+        if only_problem:
+            if only_problem not in requested:
+                typer.echo(
+                    typer.style(
+                        f"SCB_ONLY_PROBLEM={only_problem} is not in this run.",
+                        fg=typer.colors.RED,
+                        bold=True,
+                    )
+                )
+                raise typer.Exit(1)
+            problem_names_resolved = [
+                name for name in problem_names_resolved if name == only_problem
+            ]
+
         # Check if nothing to do
         if _handle_early_completion(
             problem_names_resolved,
@@ -1393,8 +1413,11 @@ def run_agent(
         )
         return
 
-    # 12. Update config with resolved/merged problems for future resumes
-    run_cfg.problems = full_problem_list
+    # 12. Update config with resolved/merged problems for future resumes.
+    # A per-problem array task must not rewrite that list down to itself:
+    # the other tasks are writing the same file at the same time.
+    if not os.environ.get("SCB_ONLY_PROBLEM", "").strip():
+        run_cfg.problems = full_problem_list
 
     # 13. Save environment and config to run directory, build docker image if needed
     image_name = _prepare_run_artifacts(

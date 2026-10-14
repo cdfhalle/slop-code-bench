@@ -225,3 +225,13 @@ dashboard/*.py[cod]
 .pi/*
 tmp/*
 reports/*
+
+# Slurm batch driver. logs/* and outputs/* above ignore contents; these
+# ignore the directories themselves, plus the generated mirror and runs.
+runs/
+logs/
+enroot_sysconf/
+outputs/
+
+# vendored static binary, not source
+slurm/bin/slirp4netns
