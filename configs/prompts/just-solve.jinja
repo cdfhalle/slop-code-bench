@@ -7,3 +7,7 @@ Keep using the same virtual environment you started with, update `requirements.t
 
 Your task is:
 {{ spec.strip() }}
+{% if previous_requirements_file %}
+
+The instructions from earlier iterations are in `{{ previous_requirements_file }}` in the current directory. You can read that file to better understand the previous requirements.
+{% endif -%}

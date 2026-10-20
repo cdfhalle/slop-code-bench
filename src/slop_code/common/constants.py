@@ -8,6 +8,9 @@ the codebase for consistent file organization and access.
 RUN_INFO_FILENAME = "run_info.yaml"  # Combined run spec + execution summary
 CHECKPOINT_CONFIG_NAME = "checkpoint.yaml"
 PROMPT_FILENAME = "prompt.txt"
+# Task prompts from earlier iterations. The agent may read this file.
+# Snapshots ignore the name so it is not graded as solution code.
+PREVIOUS_REQUIREMENTS_FILENAME = "previous_requirements.md"
 INFERENCE_RESULT_FILENAME = "inference_result.json"
 DIFF_FILENAME = "diff.json"
 RUBRIC_FILENAME = "rubric.jsonl"

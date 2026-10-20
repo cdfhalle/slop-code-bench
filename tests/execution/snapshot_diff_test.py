@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from slop_code.common import PREVIOUS_REQUIREMENTS_FILENAME
+from slop_code.execution.local_streaming import LocalEnvironmentSpec
+from slop_code.execution.models import CommandConfig
+from slop_code.execution.models import SnapshotConfig
 from slop_code.execution.snapshot import FileChangeType
 from slop_code.execution.snapshot import FileDiff
 from slop_code.execution.snapshot import Snapshot
@@ -409,3 +413,36 @@ class TestSnapshotDiffRepr:
             assert "+1" in repr_str  # 1 created
             assert "-1" in repr_str  # 1 deleted
             assert "~1" in repr_str  # 1 modified
+
+
+def test_checkpoint_snapshot_omits_previous_requirements(
+    tmp_path: Path,
+) -> None:
+    """The history file stays in the workspace and out of the graded snapshot."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "keep.py").write_text("print(1)\n", encoding="utf-8")
+    (workspace / "junk.pyc").write_bytes(b"pyc")
+    (workspace / PREVIOUS_REQUIREMENTS_FILENAME).write_text(
+        "# old\n", encoding="utf-8"
+    )
+    spec = LocalEnvironmentSpec(
+        type="local",
+        name="test",
+        commands=CommandConfig(command="python"),
+        snapshot=SnapshotConfig(
+            ignore_globs={"*.pyc"},
+            archive_save_dir=tmp_path / "archives",
+        ),
+    )
+    assert PREVIOUS_REQUIREMENTS_FILENAME in spec.get_ignore_globs()
+
+    snapshot = Snapshot.from_environment_spec(cwd=workspace, env_spec=spec)
+    try:
+        contents = snapshot.extract_contents()
+    finally:
+        snapshot.cleanup()
+
+    assert Path("keep.py") in contents
+    assert Path("junk.pyc") not in contents
+    assert Path(PREVIOUS_REQUIREMENTS_FILENAME) not in contents

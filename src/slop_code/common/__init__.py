@@ -19,6 +19,7 @@ from slop_code.common.constants import ENV_CONFIG_NAME
 from slop_code.common.constants import EVALUATION_FILENAME
 from slop_code.common.constants import FILES_QUALITY_SAVENAME
 from slop_code.common.constants import INFERENCE_RESULT_FILENAME
+from slop_code.common.constants import PREVIOUS_REQUIREMENTS_FILENAME
 from slop_code.common.constants import PROBLEM_CONFIG_NAME
 from slop_code.common.constants import PROMPT_FILENAME
 from slop_code.common.constants import QUALITY_DIR
@@ -50,6 +51,7 @@ from slop_code.common.render import render_multi_file_prefix
 from slop_code.common.render import render_prompt
 from slop_code.common.render import replace_spec_placeholders
 from slop_code.common.render import strip_canary_string
+from slop_code.common.render import task_prompt_context
 
 __all__ = [
     # Path utilities
@@ -72,6 +74,7 @@ __all__ = [
     "EVALUATION_FILENAME",
     "VERIFIER_REPORT_FILENAME",
     "SUMMARY_FILENAME",
+    "PREVIOUS_REQUIREMENTS_FILENAME",
     "PROBLEM_CONFIG_NAME",
     "PROMPT_FILENAME",
     "RUN_INFO_FILENAME",
@@ -85,6 +88,7 @@ __all__ = [
     "render_prompt",
     "replace_spec_placeholders",
     "strip_canary_string",
+    "task_prompt_context",
     # Common utilities
     "mask_sensitive_values",
     "deep_merge",

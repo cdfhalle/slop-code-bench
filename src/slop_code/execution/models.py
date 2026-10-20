@@ -26,6 +26,7 @@ from pydantic import ConfigDict
 from pydantic import Field
 
 from slop_code.common import WORKSPACE_TEST_DIR
+from slop_code.common.constants import PREVIOUS_REQUIREMENTS_FILENAME
 from slop_code.execution.assets import ResolvedStaticAsset
 from slop_code.logging import get_logger
 
@@ -135,6 +136,8 @@ class SnapshotConfig(BaseModel):
             ".claude/*",
             # Node
             "node_modules/*",
+            # Earlier-iteration instructions. Not solution code.
+            PREVIOUS_REQUIREMENTS_FILENAME,
         },
         description="Glob patterns of files to exclude from snapshots.",
     )
@@ -230,9 +233,7 @@ class EnvironmentSpec(BaseModel):
         env.update(other_env)
         return env
 
-    def get_setup_commands(
-        self, *, is_evaluation: bool = False
-    ) -> list[str]:
+    def get_setup_commands(self, *, is_evaluation: bool = False) -> list[str]:
         """Get the setup commands for the execution context.
 
         Args:
@@ -313,6 +314,9 @@ class EnvironmentSpec(BaseModel):
             Set of glob patterns to ignore
         """
         ignore_globs = set(self.snapshot.ignore_globs)
+        # Harness file, not solution code. Exclude it even when a config
+        # replaces the default ignore set.
+        ignore_globs.add(PREVIOUS_REQUIREMENTS_FILENAME)
 
         # Always ignore tests/assets/ (materialized static assets for tests)
         ignore_globs.update({"tests/assets", "tests/assets/*"})

@@ -12,6 +12,7 @@ from jinja2 import Environment
 from jinja2 import FileSystemLoader
 from jinja2 import Template
 
+from slop_code.common.constants import PREVIOUS_REQUIREMENTS_FILENAME
 from slop_code.logging import get_logger
 
 logger = get_logger(__name__)
@@ -196,3 +197,27 @@ def render_prompt(
     spec_text = replace_spec_placeholders(spec_text, entry_file, entry_command)
     template = Template(prompt_template)
     return template.render(spec=spec_text, **context)
+
+
+def task_prompt_context(
+    *,
+    is_first_checkpoint: bool,
+    agent_type: str | None = None,
+    agent_version: str | None = None,
+    model_name: str | None = None,
+) -> dict[str, Any]:
+    """Build the template context for one checkpoint task.
+
+    Continuation checkpoints set ``previous_requirements_file`` so the prompt
+    can point at earlier instructions. The first checkpoint leaves that name
+    unset, which keeps its rendered prompt unchanged.
+    """
+    context: dict[str, Any] = {
+        "is_continuation": not is_first_checkpoint,
+        "agent_type": agent_type,
+        "agent_version": agent_version or "",
+        "model_name": model_name,
+    }
+    if not is_first_checkpoint:
+        context["previous_requirements_file"] = PREVIOUS_REQUIREMENTS_FILENAME
+    return context
