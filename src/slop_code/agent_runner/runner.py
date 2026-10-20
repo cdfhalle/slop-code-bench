@@ -166,6 +166,129 @@ def get_checkpoints(
         yield checkpoint, checkpoint_save_dir
 
 
+def render_checkpoint_task(
+    spec_text: str,
+    template: str,
+    entry_file: str,
+    environment: EnvironmentSpec,
+    *,
+    is_first_checkpoint: bool,
+    agent_type: str | None = None,
+    agent_version: str | None = None,
+    model_name: str | None = None,
+) -> str:
+    """Render one checkpoint task without writing ``prompt.txt``."""
+    return common.render_prompt(
+        spec_text=spec_text,
+        context=common.task_prompt_context(
+            is_first_checkpoint=is_first_checkpoint,
+            agent_type=agent_type,
+            agent_version=agent_version,
+            model_name=model_name,
+        ),
+        prompt_template=template,
+        entry_file=environment.format_entry_file(entry_file),
+        entry_command=environment.get_command(entry_file, is_agent_run=True),
+    )
+
+
+def prior_checkpoint_names(
+    problem: ProblemConfig, current_checkpoint: str
+) -> list[str]:
+    """Return checkpoint names that come before ``current_checkpoint``."""
+    priors: list[str] = []
+    for name, _checkpoint in problem.iterate_checkpoint_items():
+        if name == current_checkpoint:
+            return priors
+        priors.append(name)
+    raise AgentRunnerError(
+        f"Checkpoint {current_checkpoint!r} is not part of "
+        f"problem {problem.name!r}"
+    )
+
+
+def _previous_requirements_text(
+    problem: ProblemConfig,
+    environment: EnvironmentSpec,
+    template: str,
+    prior_names: list[str],
+    *,
+    agent_type: str | None,
+    agent_version: str | None,
+    model_name: str | None,
+) -> str:
+    sections = [
+        "# Instructions from previous iterations",
+        "",
+        "Each section is the task prompt from an earlier iteration, in order.",
+        "Read this file to understand the previous requirements. The current",
+        "iteration's requirements are in your task prompt.",
+        "",
+    ]
+    for index, name in enumerate(prior_names):
+        rendered = render_checkpoint_task(
+            spec_text=problem.get_checkpoint_spec(name),
+            template=template,
+            entry_file=problem.entry_file,
+            environment=environment,
+            is_first_checkpoint=index == 0,
+            agent_type=agent_type,
+            agent_version=agent_version,
+            model_name=model_name,
+        )
+        sections.extend([f"## {name}", "", rendered.strip(), ""])
+    return "\n".join(sections).rstrip() + "\n"
+
+
+def sync_previous_requirements(
+    workspace: Path,
+    problem: ProblemConfig,
+    environment: EnvironmentSpec,
+    template: str,
+    *,
+    current_checkpoint: str,
+    is_first_checkpoint: bool,
+    agent_type: str | None = None,
+    agent_version: str | None = None,
+    model_name: str | None = None,
+) -> None:
+    """Publish earlier-iteration instructions where the agent can read them.
+
+    The file is written into the workspace and left out of snapshots, so the
+    agent can open it and the grader does not treat it as solution code. The
+    first checkpoint removes a leftover copy and does not mention the file.
+    """
+    dest = workspace / common.PREVIOUS_REQUIREMENTS_FILENAME
+    if is_first_checkpoint:
+        dest.unlink(missing_ok=True)
+        return
+
+    prior_names = prior_checkpoint_names(problem, current_checkpoint)
+    if not prior_names:
+        raise AgentRunnerError(
+            f"Checkpoint {current_checkpoint!r} continues a problem "
+            "but has no earlier checkpoints"
+        )
+    dest.write_text(
+        _previous_requirements_text(
+            problem,
+            environment,
+            template,
+            prior_names,
+            agent_type=agent_type,
+            agent_version=agent_version,
+            model_name=model_name,
+        ),
+        encoding="utf-8",
+    )
+    logger.info(
+        "Wrote previous iteration instructions",
+        checkpoint=current_checkpoint,
+        prior_checkpoints=prior_names,
+        path=common.PREVIOUS_REQUIREMENTS_FILENAME,
+    )
+
+
 def get_task_for_checkpoint(
     checkpoint_name: str,
     spec_text: str,
@@ -203,18 +326,15 @@ def get_task_for_checkpoint(
         checkpoint=checkpoint_name,
         is_first=is_first_checkpoint,
     )
-    context = {
-        "is_continuation": not is_first_checkpoint,
-        "agent_type": agent_type,
-        "agent_version": agent_version or "",
-        "model_name": model_name,
-    }
-    prompt = common.render_prompt(
+    prompt = render_checkpoint_task(
         spec_text=spec_text,
-        context=context,
-        prompt_template=template,
-        entry_file=environment.format_entry_file(entry_file),
-        entry_command=environment.get_command(entry_file, is_agent_run=True),
+        template=template,
+        entry_file=entry_file,
+        environment=environment,
+        is_first_checkpoint=is_first_checkpoint,
+        agent_type=agent_type,
+        agent_version=agent_version,
+        model_name=model_name,
     )
     with (output_path / common.PROMPT_FILENAME).open("w") as f:
         f.write(prompt)
@@ -415,6 +535,17 @@ def run_checkpoint(
     agent_version: str | None = None,
     model_name: str | None = None,
 ) -> tuple[Path, CheckpointInferenceResult | None, SnapshotDiff]:
+    sync_previous_requirements(
+        session.working_dir,
+        problem,
+        environment,
+        template,
+        current_checkpoint=checkpoint.name,
+        is_first_checkpoint=is_first_checkpoint,
+        agent_type=agent_type,
+        agent_version=agent_version,
+        model_name=model_name,
+    )
     task = get_task_for_checkpoint(
         checkpoint_name=checkpoint.name,
         spec_text=problem.get_checkpoint_spec(checkpoint.name),

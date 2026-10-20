@@ -26,3 +26,7 @@ You are an exceptional python software engineer and you to need to implement a s
 
 Your task is:
 {{ spec.strip() }}
+{% if previous_requirements_file %}
+
+The instructions from earlier iterations are in `{{ previous_requirements_file }}` in the current directory. You can read that file to better understand the previous requirements.
+{% endif -%}

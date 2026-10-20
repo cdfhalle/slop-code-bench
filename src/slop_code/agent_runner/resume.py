@@ -21,6 +21,7 @@ from slop_code.common import PROMPT_FILENAME
 from slop_code.common import RUN_INFO_FILENAME
 from slop_code.common import SNAPSHOT_DIR_NAME
 from slop_code.common import render_prompt
+from slop_code.common import task_prompt_context
 from slop_code.common.llms import TokenUsage
 from slop_code.evaluation.config import CheckpointConfig
 from slop_code.evaluation.config import ProblemConfig
@@ -106,7 +107,7 @@ def _generate_expected_prompt(
     """
     return render_prompt(
         spec_text=problem_config.get_checkpoint_spec(checkpoint.name),
-        context={"is_continuation": not is_first_checkpoint},
+        context=task_prompt_context(is_first_checkpoint=is_first_checkpoint),
         prompt_template=prompt_template,
         entry_file=environment.format_entry_file(entry_file),
         entry_command=environment.get_command(entry_file, is_agent_run=True),

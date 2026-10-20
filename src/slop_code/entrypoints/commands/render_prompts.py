@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 
 from slop_code.common.render import render_prompt
+from slop_code.common.render import task_prompt_context
 from slop_code.entrypoints.commands import common
 from slop_code.entrypoints.commands.common import load_problem_config_or_exit
 from slop_code.entrypoints.config.loader import resolve_config_path
@@ -66,7 +67,7 @@ def _render_checkpoint_prompt(
 
     return render_prompt(
         spec_text=spec_text,
-        context={"is_continuation": is_continuation},
+        context=task_prompt_context(is_first_checkpoint=not is_continuation),
         prompt_template=prompt_template,
         entry_file=formatted_entry_file,
         entry_command=entry_command,
