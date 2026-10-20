@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from slop_code.execution.enroot_runtime.backend import mount_spec
 from slop_code.execution.enroot_runtime.backend import reject_home_mount
+from slop_code.execution.enroot_runtime.session import container_resolv_text
 from slop_code.execution.enroot_runtime.miniswe import MiniSWEEnrootEnvironment
 from slop_code.execution.enroot_runtime.models import EnrootConfig
 from slop_code.execution.enroot_runtime.models import EnrootEnvironmentSpec
@@ -52,6 +54,39 @@ def _calls(log: Path) -> list[tuple[str, list[str]]]:
         argv = rest.split("\0") if rest else []
         rows.append((mount_home, argv))
     return rows
+
+
+def test_container_resolv_keeps_the_host_search_list() -> None:
+    text = container_resolv_text(
+        "search hpc.sci.hpi.de example.test\n"
+        "nameserver 10.130.0.1\n"
+        "options rotate ndots:2 edns0\n"
+    )
+
+    assert text.splitlines()[0] == "nameserver 10.0.2.3"
+    assert "search hpc.sci.hpi.de example.test" in text
+    assert "options rotate ndots:2 edns0" in text
+    assert "10.130.0.1" not in text
+
+
+def test_container_resolv_sets_ndots_when_the_host_has_none() -> None:
+    text = container_resolv_text("nameserver 10.130.0.1\n")
+
+    assert "nameserver 10.0.2.3" in text
+    assert "options ndots:2" in text
+
+
+def test_mount_spec_uses_file_create_for_a_file(tmp_path: Path) -> None:
+    host_file = tmp_path / "config.toml"
+    host_file.write_text("[core]\n", encoding="utf-8")
+    host_dir = tmp_path / "output"
+    host_dir.mkdir()
+
+    file_mount = mount_spec(host_file, "/openhands/config.toml", read_only=True)
+    dir_mount = mount_spec(host_dir, "/openhands/output", read_only=False)
+
+    assert file_mount.endswith(":none:x-create=file,bind,ro")
+    assert dir_mount.endswith(":none:x-create=dir,bind,rw")
 
 
 def test_rejects_home_mount() -> None:

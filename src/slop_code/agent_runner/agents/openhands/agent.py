@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -17,7 +18,6 @@ from slop_code.agent_runner.agent import Agent
 from slop_code.agent_runner.agent import AgentConfigBase
 from slop_code.agent_runner.agents.cli_utils import AgentCommandResult
 from slop_code.agent_runner.agents.cli_utils import stream_cli_command
-from slop_code.agent_runner.agents.utils import HOME_PATH
 from slop_code.agent_runner.credentials import ProviderCredential
 from slop_code.agent_runner.models import AgentCostLimits
 from slop_code.agent_runner.models import AgentError
@@ -36,6 +36,9 @@ log = get_logger(__name__)
 # OpenHands binary path - installed in /opt/openhands-venv
 OPENHANDS_BINARY = "/opt/openhands-venv/bin/python"
 OPENHANDS_MODULE = "openhands.core.main"
+# Host TMPDIR is not mounted (ENROOT_MOUNT_HOME=n). The bake creates this
+# directory inside the image and opens it to the container uid.
+OPENHANDS_HOME = "/opt/agent_home"
 
 OUTPUT_DIR_NAME = "output"
 TRAJECTORY_FILE_CANDIDATES = ("trajectory.json", "openhands.trajectory.json")
@@ -61,6 +64,15 @@ ACTION_PATTERNS = [
 PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
 }
+
+
+def _api_base_from_env() -> str | None:
+    """Base URL the Slurm submitter exports for a self-hosted endpoint."""
+    for key in ("OPENAI_API_BASE", "API_BASE"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return None
 
 
 class OpenHandsConfig(AgentConfigBase):
@@ -165,13 +177,22 @@ class OpenHandsAgent(Agent):
         if image is None:
             raise ValueError("OpenHandsAgent requires an image")
 
-        # Get model slug for API calls
-        model_slug = model.get_model_slug(credential.provider)
+        # Explicit agent_specific.openhands.model_name wins over the slug.
+        # A self-hosted id such as openai/qwen3.8-27b is not internal_name.
+        settings = model.get_agent_settings("openhands") or {}
+        explicit_name = settings.get("model_name")
+        if isinstance(explicit_name, str) and explicit_name.strip():
+            model_slug = explicit_name.strip()
+        else:
+            model_slug = model.get_model_slug(credential.provider)
 
-        # Resolve base_url: config > provider lookup
-        base_url = config.base_url
-        if base_url is None:
-            base_url = PROVIDER_BASE_URLS.get(credential.provider)
+        # config.base_url, then a known provider URL, then the submitter env.
+        # OpenRouter stays the known URL even when OPENAI_API_BASE is set.
+        base_url = (
+            config.base_url
+            or PROVIDER_BASE_URLS.get(credential.provider)
+            or _api_base_from_env()
+        )
 
         return cls(
             problem_name=problem_name,
@@ -367,7 +388,7 @@ disable_color = true
         self._runtime = session.spawn(
             mounts=self._get_volumes(),
             env_vars={
-                "HOME": HOME_PATH,
+                "HOME": OPENHANDS_HOME,
             },
             image=self._image,
             disable_setup=True,
@@ -577,10 +598,12 @@ disable_color = true
     def _build_command(self, task: str) -> str:
         """Build OpenHands command for local runtime mode."""
         escaped_task = shlex.quote(task)
+        # libtmux rejects a session name that contains a period. OpenHands
+        # names the tmux session from $USER, and this cluster's accounts do.
         return " ".join(
             [
                 "SANDBOX_VOLUMES=${PWD}:/workspace:rw",
-                "USER=$(id -un)",
+                "USER=$(id -un | tr -c 'A-Za-z0-9_-' '_')",
                 f"{OPENHANDS_BINARY} -u -m {OPENHANDS_MODULE}",
                 "--config-file /openhands/config.toml",
                 f"--task={escaped_task}",

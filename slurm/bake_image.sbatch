@@ -5,6 +5,11 @@
 #   sbatch slurm/bake_image.sbatch
 #   SCB_BAKE_AGENT=claude_code SCB_AGENT_VERSION=2.0.51 sbatch slurm/bake_image.sbatch
 #
+# openhands is not that extractor (apt plus a uv venv). It layers onto the
+# existing slop-code-python3.12.sqsh and writes only
+# slop-code-openhands-<version>.sqsh. The 1.1.0 wheel is cp312:
+#   SCB_BAKE_AGENT=openhands SCB_AGENT_VERSION=1.1.0 sbatch slurm/bake_image.sbatch
+#
 # Those two variables must be exported (sbatch --export=ALL only forwards the
 # environment). The base image is public GHCR. This script does not pull Docker
 # Hub and does not implement the dh1/dh2 failover.
@@ -20,6 +25,9 @@
 #SBATCH --time=04:00:00
 # First bake: job 2611782, elapsed 00:02:13, MaxRSS 8619592K (~8.2G) on cx42.
 # Request stays above that: a cold apt/node/rust download can exceed it.
+# OpenHands layer on that base: job 2675326, elapsed 00:01:31, MaxRSS 16125932K
+# (~15.4G) on cx42. The 32G request still covers it. The base sqsh was not
+# rewritten (mtime stayed 2026-10-06 15:59).
 #SBATCH --output=logs/%x-%j.out
 
 set -euo pipefail
@@ -103,6 +111,89 @@ refuse_same_store() {
     fi
 }
 
+# OpenHands docker.j2 is apt plus a uv venv, which extract_agent_install
+# refuses. Layer it onto the existing python3.12 sqsh. Do not re-export that
+# base: the full bake always replaces slop-code-python3.12.sqsh.
+# Keep the package list in sync with agents/openhands/docker.j2.
+bake_openhands_layer() {
+    local version=${SCB_AGENT_VERSION:-}
+    if [ -z "$version" ]; then
+        echo "set both SCB_BAKE_AGENT and SCB_AGENT_VERSION, or neither" >&2
+        exit 2
+    fi
+    case "$version" in
+        *[!A-Za-z0-9._+-]*)
+            echo "SCB_AGENT_VERSION must be a single path component" >&2
+            exit 2
+            ;;
+    esac
+    local base_sqsh="$SCB_IMAGE_STORE/slop-code-python3.12.sqsh"
+    if [ ! -f "$base_sqsh" ]; then
+        echo "missing base image: $base_sqsh" >&2
+        exit 1
+    fi
+
+    bash slurm/setup_enroot_sysconf.sh
+
+    # Global, not local: the EXIT trap runs after this function returns.
+    BAKE_CONTAINER=scb-bake-openhands
+    # shellcheck disable=SC2317,SC2329
+    cleanup() {
+        local status=$?
+        if [ -n "${BAKE_CONTAINER:-}" ]; then
+            enroot remove -f "$BAKE_CONTAINER" >/dev/null 2>&1 || true
+        fi
+        exit "$status"
+    }
+    trap cleanup EXIT
+
+    local attempt
+    for attempt in 1 2 3; do
+        if enroot create --name "$BAKE_CONTAINER" "$base_sqsh"; then
+            break
+        fi
+        echo "enroot create failed (attempt ${attempt}/3)" >&2
+        enroot remove -f "$BAKE_CONTAINER" >/dev/null 2>&1 || true
+        if [ "$attempt" -eq 3 ]; then
+            exit 1
+        fi
+        sleep $((attempt * 5))
+    done
+
+    local agent_script="$TMPDIR/slop-bake-openhands.sh"
+    assert_mountable "$agent_script"
+    cat >"$agent_script" <<'END_OH'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+export HOME=/opt/agent_home
+export UV_CACHE_DIR=/opt/cache/uv
+export PIP_CACHE_DIR=/opt/cache/pip
+export PIP_CONFIG_FILE=/opt/cache/pip.conf
+apt-get update && apt-get install -y --no-install-recommends tmux && rm -rf /var/lib/apt/lists/*
+mkdir -p /openhands /opt/openhands-venv "$HOME"
+uv venv /opt/openhands-venv --python 3.12
+uv pip install --python /opt/openhands-venv/bin/python --prerelease=allow \
+    "openhands-ai==__VERSION__" \
+    ipykernel jupyterlab notebook jupyter \
+    jupyter-console jupyter-client nbconvert
+chmod -R a+rwX "$HOME" /openhands /opt/openhands-venv
+/opt/openhands-venv/bin/python -c 'import openhands.core.main'
+END_OH
+    sed -i "s/__VERSION__/${version}/" "$agent_script"
+
+    # --root: apt needs uid 0. Do not pass --net: that netns is loopback only.
+    # Mount at /opt, not /tmp: enroot covers /tmp with a tmpfs.
+    enroot start --root --rw \
+        -m "${agent_script}:/opt/slop-bake-openhands.sh:none:x-create=file,bind,ro" \
+        "$BAKE_CONTAINER" /bin/bash /opt/slop-bake-openhands.sh
+
+    mkdir -p "$SCB_IMAGE_STORE"
+    refuse_same_store
+    local agent_sqsh="$SCB_IMAGE_STORE/slop-code-openhands-${version}.sqsh"
+    enroot export -f -o "$agent_sqsh" "$BAKE_CONTAINER"
+    echo "exported $agent_sqsh"
+}
+
 main() {
     cd "${SCB_REPO:-${SLURM_SUBMIT_DIR:-$PWD}}"
     # shellcheck source=../config.sh
@@ -116,6 +207,12 @@ main() {
     fi
     # Fail before the pull. Export checks again in case the paths were retargeted.
     refuse_same_store
+
+    # Do this before the GHCR import. A full bake re-exports the base sqsh.
+    if [ "${SCB_BAKE_AGENT:-}" = "openhands" ]; then
+        bake_openhands_layer
+        return
+    fi
 
     bash slurm/setup_enroot_sysconf.sh
     mkdir -p "$SCB_IMAGES_DIR"

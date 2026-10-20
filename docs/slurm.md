@@ -46,7 +46,11 @@ SCB_BAKE_AGENT=claude_code SCB_AGENT_VERSION=2.0.51 sbatch slurm/bake_image.sbat
 
 That runs the agent's `docker.j2` only when it is a single `npm install`,
 `pip install`, or `curl | sh`. Anything else exits 2 and names the file.
-`claude_code` is the npm install. The first real bake should record its job id,
+`claude_code` is the npm install. `openhands` is the exception: it does not
+rebuild the base. `SCB_BAKE_AGENT=openhands SCB_AGENT_VERSION=1.1.0` starts
+from `slop-code-python3.12.sqsh` and exports only
+`slop-code-openhands-1.1.0.sqsh`. The 1.1.0 wheel needs Python 3.12. The first
+real bake should record its job id,
 wall time, and peak RSS on the `#SBATCH --mem` / `--time` lines in
 `slurm/bake_image.sbatch`. Those numbers are placeholders.
 

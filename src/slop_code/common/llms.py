@@ -132,6 +132,10 @@ class ModelDefinition(BaseModel):
             api_base: str - API endpoint URL override
             model_kwargs: dict - Additional kwargs for model constructor
 
+        openhands:
+            model_name: str - LiteLLM model id. Wins over get_model_slug().
+                A value containing "/" is sent unchanged.
+
         claude_code:
             base_url: str - Override ANTHROPIC_BASE_URL
             env_overrides: dict[str, str] - Environment variable overrides

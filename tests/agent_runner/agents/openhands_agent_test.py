@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from slop_code.agent_runner.agents.cli_utils import AgentCommandResult
 from slop_code.agent_runner.agents.openhands import OpenHandsAgent
 from slop_code.agent_runner.agents.openhands import OpenHandsConfig
-from slop_code.agent_runner.agents.utils import HOME_PATH
 from slop_code.agent_runner.credentials import CredentialType
 from slop_code.agent_runner.credentials import ProviderCredential
 from slop_code.agent_runner.models import AgentCostLimits
@@ -90,6 +91,112 @@ def test_from_config_uses_provider_slug_and_openrouter_base_url() -> None:
     assert cast_agent.base_url == "https://openrouter.ai/api/v1"
 
 
+def test_from_config_openrouter_base_url_wins_over_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_BASE", "http://gx01:8000/v1")
+    monkeypatch.setenv("API_BASE", "http://gx02:8000/v1")
+    config = OpenHandsConfig(
+        type="openhands",
+        version="1.1.0",
+        cost_limits=AgentCostLimits(
+            step_limit=0,
+            cost_limit=10.0,
+            net_cost_limit=0.0,
+        ),
+    )
+    model = ModelDefinition(
+        internal_name="gpt-5",
+        provider="openai",
+        pricing=APIPricing(input=1.0, output=2.0),
+        provider_slugs={"openrouter": "openai/gpt-5"},
+    )
+    credential = _make_credential("openrouter", "OPENROUTER_API_KEY")
+
+    agent = OpenHandsAgent._from_config(
+        config=config,
+        model=model,
+        credential=credential,
+        problem_name="p",
+        verbose=False,
+        image="img",
+    )
+    cast_agent = cast("OpenHandsAgent", agent)
+
+    assert cast_agent.base_url == "https://openrouter.ai/api/v1"
+
+
+def test_from_config_uses_openhands_model_name_and_openai_api_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_BASE", "http://gx01:8000/v1")
+    monkeypatch.delenv("API_BASE", raising=False)
+    config = OpenHandsConfig(
+        type="openhands",
+        version="1.1.0",
+        cost_limits=AgentCostLimits(
+            step_limit=0,
+            cost_limit=10.0,
+            net_cost_limit=0.0,
+        ),
+    )
+    model = ModelDefinition(
+        internal_name="qwen3827b",
+        provider="openai",
+        pricing=APIPricing(input=0.0, output=0.0),
+        agent_specific={"openhands": {"model_name": "openai/qwen3.8-27b"}},
+    )
+    credential = _make_credential("openai", "OPENAI_API_KEY")
+
+    agent = OpenHandsAgent._from_config(
+        config=config,
+        model=model,
+        credential=credential,
+        problem_name="p",
+        verbose=False,
+        image="img",
+    )
+    cast_agent = cast("OpenHandsAgent", agent)
+
+    assert cast_agent.model == "openai/qwen3.8-27b"
+    assert cast_agent.base_url == "http://gx01:8000/v1"
+
+
+def test_from_config_reads_api_base_when_openai_api_base_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.setenv("API_BASE", "http://gx02:8000/v1")
+    config = OpenHandsConfig(
+        type="openhands",
+        version="1.1.0",
+        cost_limits=AgentCostLimits(
+            step_limit=0,
+            cost_limit=10.0,
+            net_cost_limit=0.0,
+        ),
+    )
+    model = ModelDefinition(
+        internal_name="qwen3827b",
+        provider="openai",
+        pricing=APIPricing(input=0.0, output=0.0),
+    )
+    credential = _make_credential("openai", "OPENAI_API_KEY")
+
+    agent = OpenHandsAgent._from_config(
+        config=config,
+        model=model,
+        credential=credential,
+        problem_name="p",
+        verbose=False,
+        image="img",
+    )
+    cast_agent = cast("OpenHandsAgent", agent)
+
+    assert cast_agent.model == "qwen3827b"
+    assert cast_agent.base_url == "http://gx02:8000/v1"
+
+
 def test_prepare_runtime_execution_uses_local_runtime_contract() -> None:
     agent = OpenHandsAgent(
         problem_name="p",
@@ -119,6 +226,7 @@ def test_prepare_runtime_execution_uses_local_runtime_contract() -> None:
     assert env["MAX_ITERATIONS"] == "12"
     assert env["MAX_BUDGET_PER_TASK"] == "3.5"
     assert "SANDBOX_VOLUMES=${PWD}:/workspace:rw" in command
+    assert "USER=$(id -un | tr -c 'A-Za-z0-9_-' '_')" in command
     assert "/opt/openhands-venv/bin/python -u -m openhands.core.main" in command
     assert "--task='solve this task'" in command
 
@@ -232,7 +340,7 @@ def test_setup_passes_home_override_and_mounts(tmp_path: Path) -> None:
     agent.setup(cast("Session", session))
 
     assert session.last_spawn_env_vars is not None
-    assert session.last_spawn_env_vars["HOME"] == HOME_PATH
+    assert session.last_spawn_env_vars["HOME"] == "/opt/agent_home"
     assert session.last_spawn_mounts is not None
     assert any(
         isinstance(mapping, dict) and mapping.get("bind") == "/openhands/output"

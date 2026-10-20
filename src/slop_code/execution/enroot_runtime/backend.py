@@ -112,8 +112,11 @@ def mount_spec(
     reject_home_mount(host_path)
     # enroot splits on ':' into fstab fields: spec, target, type, options.
     # A bare "rw" is read as the filesystem type, so the bind never happens.
+    # x-create=dir on a file makes the target a directory, and the bind then
+    # fails with "Not a directory". A file needs x-create=file.
     mode = "ro" if read_only else "rw"
-    return f"{host_path}:{container_path}:none:x-create=dir,bind,{mode}"
+    kind = "file" if host_path.is_file() else "dir"
+    return f"{host_path}:{container_path}:none:x-create={kind},bind,{mode}"
 
 
 def build_mounts(

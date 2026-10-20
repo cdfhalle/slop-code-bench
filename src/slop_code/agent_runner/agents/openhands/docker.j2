@@ -10,7 +10,7 @@ RUN mkdir -p /openhands /opt/openhands-venv && \
 RUN apt-get update && apt-get install -y tmux && rm -rf /var/lib/apt/lists/*
 
 # Create venv and install OpenHands.
-RUN uv venv /opt/openhands-venv --python 3.13 && \
+RUN uv venv /opt/openhands-venv --python 3.12 && \
     uv pip install --python /opt/openhands-venv/bin/python --prerelease=allow openhands-ai=={{ version }} \
         ipykernel jupyterlab notebook jupyter \
         jupyter-console jupyter-client nbconvert

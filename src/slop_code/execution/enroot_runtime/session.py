@@ -28,6 +28,24 @@ from slop_code.execution.runtime import SolutionRuntimeError
 _CONNECT_TIMEOUT = 10.0
 
 
+def container_resolv_text(host_resolv: str) -> str:
+    """Resolver file for a slirp namespace.
+
+    The nameserver is slirp's DNS proxy. A short cluster name such as
+    ``ga01`` only resolves when the host search list and ndots are kept.
+    The proxy does not apply the host's ``/etc/resolv.conf`` by itself.
+    """
+    kept: list[str] = []
+    for raw in host_resolv.splitlines():
+        line = raw.strip()
+        if line.startswith(("search ", "domain ", "options ")):
+            kept.append(line)
+    lines = ["nameserver 10.0.2.3", *kept]
+    if not any(line.startswith("options ") for line in kept):
+        lines.append("options ndots:2")
+    return "\n".join(lines) + "\n"
+
+
 class EnrootSession:
     """One unpacked container and, while a command is in flight, one start."""
 
@@ -66,7 +84,15 @@ class EnrootSession:
         install_supervisor(spec, working_dir)
         if self.attach_slirp:
             resolv = working_dir / ".slop-enroot" / "resolv.conf"
-            resolv.write_text("nameserver 10.0.2.3\n", encoding="utf-8")
+            try:
+                host_resolv = Path("/etc/resolv.conf").read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            except OSError:
+                host_resolv = ""
+            resolv.write_text(
+                container_resolv_text(host_resolv), encoding="utf-8"
+            )
             self.mounts.append(
                 f"{resolv}:/etc/resolv.conf:none:x-create=file,bind,ro"
             )
