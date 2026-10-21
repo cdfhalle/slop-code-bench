@@ -124,3 +124,30 @@ fails. `file_backup` only mentions the word inside a fixture note.
 
 `slirp4netns` is not installed on the cluster. A static 1.3.6 binary belongs
 at `slurm/bin/slirp4netns` and is gitignored. See `slurm/bin/README.md`.
+
+## SuperGrok subscription
+
+mini-swe-agent only speaks to an API. OpenCode and Hermes sign a SuperGrok
+subscription in with the public Grok CLI device-code client and call
+`api.x.ai` with the resulting bearer. `scb_slurm.grok_proxy` does that login
+once and refreshes the access token in one process, so array tasks do not
+rotate the refresh token against each other.
+
+```bash
+uv run python -m scb_slurm.grok_proxy login
+sbatch slurm/grok_proxy.sbatch
+# logs/scb-grok-proxy-<job>.out prints api_base=
+export SCB_GROK_PROXY_KEY_FILE=$HOME/.config/scb-grok-oauth/proxy.key
+uv run python -m scb_slurm.submit_batch \
+  --model openai/grok-4.7 \
+  --api-base "$(uv run python -m scb_slurm.grok_proxy api-base)" \
+  --problems code_search \
+  --throttle 1 \
+  --run grok-code-search
+```
+
+`--throttle 1` until a smoke problem finishes. One subscription is not a
+bank of servers. `python -m scb_slurm.grok_proxy models` lists the ids the
+login can call. The catalog entry is `configs/models/grok-4.7.yaml`.
+Tokens and the proxy key stay under `~/.config/scb-grok-oauth/` (mode 0600).
+The repo does not write them.
