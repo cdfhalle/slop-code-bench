@@ -1,0 +1,19 @@
+# SuperGrok subscription, reached through scb_slurm.grok_proxy.
+# Pass the proxy URL with submit_batch --api-base. Pricing is zero because
+# the subscription is not metered per token; a non-zero price would trip
+# mini-swe's dollar cap on a bill that is not actually being charged.
+# grok-4.7 is the coding id OpenCode documents for this subscription.
+# `python -m scb_slurm.grok_proxy models` prints the ids the login can call.
+internal_name: grok-4.7
+provider: openai
+aliases:
+  - grok-4.7
+pricing:
+  input: 0
+  output: 0
+  cache_read: 0
+  cache_write: 0
+agent_specific:
+  mini_swe:
+    model_name: openai/grok-4.7
+    model_class: litellm

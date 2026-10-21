@@ -106,6 +106,17 @@ fi
 if [ -n "${API_BASE:-}" ]; then
     export OPENAI_API_BASE="$API_BASE"
     export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-$API_BASE}"
+    # The Grok proxy key is a local file, not a value on the sbatch command
+    # line. Set SCB_GROK_PROXY_KEY_FILE to that path before submit_batch.
+    # A self-hosted server leaves the variable unset and still gets "local".
+    if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${SCB_GROK_PROXY_KEY_FILE:-}" ]; then
+        if [ ! -f "$SCB_GROK_PROXY_KEY_FILE" ]; then
+            echo "missing SCB_GROK_PROXY_KEY_FILE=$SCB_GROK_PROXY_KEY_FILE" >&2
+            exit 1
+        fi
+        OPENAI_API_KEY=$(tr -d '[:space:]' <"$SCB_GROK_PROXY_KEY_FILE")
+        export OPENAI_API_KEY
+    fi
     if [ -z "${OPENAI_API_KEY:-}" ]; then
         export OPENAI_API_KEY=local
     fi
